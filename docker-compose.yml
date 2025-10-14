@@ -1,0 +1,154 @@
+services:
+
+  mysql_department:
+    image: mysql:latest
+    container_name: mysql_department
+    environment:
+      MYSQL_ROOT_PASSWORD: root
+      MYSQL_DATABASE: department_db
+      MYSQL_USER: gibbssonfarias
+      MYSQL_PASSWORD: gibb246
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql_dept_data:/var/lib/mysql
+    healthcheck:
+      test: [ "CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "gibbssonfarias", "-pgibb246" ]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres_employee:
+    image: postgres:latest
+    container_name: postgres_employee
+    environment:
+      POSTGRES_USER: gibbssonfarias
+      POSTGRES_PASSWORD: gibb246
+      POSTGRES_DB: employee_db
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_emp_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U gibbssonfarias" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  postgres_organization:
+    image: postgres:latest
+    container_name: postgres_organization
+    environment:
+      POSTGRES_USER: gibbssonfarias
+      POSTGRES_PASSWORD: gibb246
+      POSTGRES_DB: organization_db
+    ports:
+      - "5434:5432"
+    volumes:
+      - postgres_org_data:/var/lib/postgresql/data
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U gibbssonfarias" ]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  zipkin:
+    container_name: zipkin
+    image: openzipkin/zipkin
+    extra_hosts: ['host.docker.internal:host-gateway']
+    ports:
+      - "9411:9411"
+
+  config-server:
+    image: gibbbackfc/config-server:1.0-SNAPSHOT
+    ports:
+      - "8088:8088"
+    healthcheck:
+      test: curl --fail http://localhost:8088/employee/docker || exit 1
+      interval: 5s
+      timeout: 2s
+      retries: 3
+
+  discovery-server:
+    image: gibbbackfc/discovery-server:1.0-SNAPSHOT
+    ports:
+      - "8061:8061"
+    depends_on:
+      config-server:
+        condition: service_healthy
+    links:
+      - config-server
+    healthcheck:
+      test: curl --fail http://localhost:8061/eureka/v2/apps || exit 1
+      interval: 4s
+      timeout: 2s
+      retries: 3
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+
+  employee-service:
+    image: gibbbackfc/employee-service:1.0-SNAPSHOT
+    ports:
+      - "8080"
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+    links:
+      - config-server
+      - discovery-server
+      - zipkin
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+
+  department-service:
+    image: gibbbackfc/department-service:1.0-SNAPSHOT
+    ports:
+      - "8080"
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+    links:
+      - config-server
+      - discovery-server
+      - employee-service
+      - zipkin
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+
+  organization-service:
+    image: gibbbackfc/organization-service:1.0-SNAPSHOT
+    ports:
+      - "8080"
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+    links:
+      - config-server
+      - discovery-server
+      - employee-service
+      - department-service
+      - zipkin
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+
+  api-gateway:
+    image: gibbbackfc/api-gateway:1.0-SNAPSHOT
+    ports:
+      - "8060:8060"
+    depends_on:
+      discovery-server:
+        condition: service_healthy
+    links:
+      - config-server
+      - discovery-server
+      - employee-service
+      - department-service
+      - organization-service
+      - zipkin
+    environment:
+      SPRING_PROFILES_ACTIVE: docker
+
+volumes:
+  mysql_dept_data:
+  postgres_emp_data:
+  postgres_org_data:
